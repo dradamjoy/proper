@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, ChevronDown, Minus, Plus, Undo2 } from "lucide-react";
 import { GROUPS, SCREENERS, TESTS, suggestTimes } from "@/lib/catalog";
 import {
   ACTIVITY_META,
@@ -88,7 +88,8 @@ export function Desk() {
   const [saved, setSaved] = useState<Saved[]>([]);
   const [rates, setRates] = useState<Rates>({});
   const [query, setQuery] = useState("");
-  const [draftName, setDraftName] = useState("");
+  const [browse, setBrowse] = useState(false);
+  const [undo, setUndo] = useState<{ text: string; worksheet: Worksheet } | null>(null);
   const result = useMemo(() => codeWorksheet(worksheet), [worksheet]);
   const quote = useMemo(() => priceClaim(result.lines, worksheet, rates), [result.lines, worksheet, rates]);
   const missed = useMemo(() => missedCodes(worksheet), [worksheet]);
@@ -135,6 +136,17 @@ export function Desk() {
     if (ready) localStorage.setItem(RATES_KEY, JSON.stringify(rates));
   }, [rates, ready]);
 
+  useEffect(() => {
+    if (!undo) return;
+    const timer = window.setTimeout(() => setUndo(null), 10000);
+    return () => window.clearTimeout(timer);
+  }, [undo]);
+
+  function replaceWorksheet(next: Worksheet, text: string) {
+    if (hasWork(worksheet)) setUndo({ text, worksheet });
+    setWorksheet(next);
+  }
+
   function patch(partial: Partial<Worksheet>) {
     setWorksheet((current) => ({ ...current, ...partial }));
   }
@@ -160,15 +172,24 @@ export function Desk() {
     });
   }
 
-  function addInstrument() {
-    const name = draftName.trim();
-    if (!name) return;
+  function addCustom(name: string) {
     setWorksheet((current) => {
       if (current.tests.some((item) => item.toLowerCase() === name.toLowerCase())) return current;
       const tests = [...current.tests, name];
       return { ...current, tests, singleAutomated: tests.length === 1 && current.singleAutomated };
     });
-    setDraftName("");
+  }
+
+  /** Enter in the search box: pick the catalog match, or add the text as a custom instrument. */
+  function submitQuery() {
+    const name = query.trim();
+    if (!name) return;
+    const exact = TESTS.find((test) => test.name.toLowerCase() === name.toLowerCase());
+    const pick = exact ?? (visible.length === 1 ? visible[0] : undefined);
+    if (pick) {
+      if (!worksheet.tests.some((item) => item.toLowerCase() === pick.name.toLowerCase())) toggleNamed("tests", pick.name);
+    } else addCustom(name);
+    setQuery("");
   }
 
   function applyTypical() {
@@ -201,6 +222,10 @@ export function Desk() {
   }
 
   const visible = TESTS.filter((test) => test.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const searching = query.trim() !== "";
+  const showCatalog = browse || searching || worksheet.tests.length === 0;
+  const customName = searching && !TESTS.some((test) => test.name.toLowerCase() === query.trim().toLowerCase()) ? query.trim() : null;
+  const plan = payerProfile(worksheet.payer);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -213,7 +238,7 @@ export function Desk() {
           Describe the tests, who gave them, and the time. The claim follows the license: an LP and an LLP do not bill the same testing codes.
         </p>
       </header>
-      <main className="mx-auto grid max-w-6xl items-start gap-4 px-4 pb-16 lg:grid-cols-[minmax(0,1fr)_22.5rem]">
+      <main className="mx-auto grid max-w-6xl items-start gap-4 px-4 pb-28 lg:grid-cols-[minmax(0,1fr)_22.5rem] lg:pb-16">
         <div className="flex min-w-0 flex-col gap-4">
           <section className="rounded-xl border border-line bg-card p-4">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -223,12 +248,28 @@ export function Desk() {
               </div>
               <div className="flex gap-2 no-print">
                 <button type="button" className={button("quiet")} onClick={saveWorksheet}>Save</button>
-                <button type="button" className={button("ghost")} onClick={() => setWorksheet(EMPTY)}>Clear</button>
+                <button type="button" className={button("ghost")} onClick={() => replaceWorksheet(EMPTY, "Worksheet cleared.")}>Clear</button>
               </div>
             </div>
+            {undo ? (
+              <div role="status" className="mt-3 flex items-center justify-between gap-3 rounded-md bg-inset px-3 py-2 no-print">
+                <p className="text-sm text-ink">{undo.text}</p>
+                <button
+                  type="button"
+                  className={button("quiet")}
+                  onClick={() => {
+                    setWorksheet(undo.worksheet);
+                    setUndo(null);
+                  }}
+                >
+                  <Undo2 className="mr-2 size-4" aria-hidden />
+                  Undo
+                </button>
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               {PRESETS.map((preset) => (
-                <button key={preset.id} type="button" onClick={() => setWorksheet(preset.worksheet)} className="rounded-md border border-line bg-paper px-3 py-3 text-left hover:border-accent">
+                <button key={preset.id} type="button" onClick={() => replaceWorksheet(preset.worksheet, `Loaded the ${preset.label} example.`)} className="rounded-md border border-line bg-paper px-3 py-3 text-left hover:border-accent">
                   <span className="block text-sm font-medium text-ink">{preset.label}</span>
                   <span className="mt-1 block text-sm leading-normal text-muted">{preset.detail}</span>
                 </button>
@@ -240,7 +281,7 @@ export function Desk() {
                 <ul className="mt-2 flex gap-2 overflow-x-auto pb-1">
                   {saved.map((item) => (
                     <li key={item.id} className="flex shrink-0 overflow-hidden rounded-md border border-line">
-                      <button type="button" className="h-11 px-3 text-sm text-ink hover:bg-inset" onClick={() => setWorksheet(item.worksheet)}>{item.name}</button>
+                      <button type="button" className="h-11 px-3 text-sm text-ink hover:bg-inset" onClick={() => replaceWorksheet(item.worksheet, `Opened ${item.name}.`)}>{item.name}</button>
                       <button
                         type="button"
                         className="h-11 border-l border-line px-3 text-sm text-muted hover:bg-inset"
@@ -282,12 +323,12 @@ export function Desk() {
             </fieldset>
             <fieldset className="mt-4">
               <legend className="text-sm font-medium text-ink">Plan</legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 {PAYERS.map((plan) => (
                   <Choice key={plan.id} pressed={worksheet.payer === plan.id} label={plan.label} hint={plan.hint} onClick={() => selectPayer(plan.id)} />
                 ))}
               </div>
-              <p className="mt-2 text-sm leading-normal text-muted">{payerProfile(worksheet.payer).rule} Rules reviewed {reviewedLabel()}.</p>
+              <p className="mt-2 text-sm leading-normal text-muted">{plan.rule} Rules reviewed {reviewedLabel()}.</p>
             </fieldset>
             <fieldset className="mt-4">
               <legend className="text-sm font-medium text-ink">Office</legend>
@@ -296,13 +337,6 @@ export function Desk() {
                 <Choice pressed={worksheet.locality === "99"} label="East Lansing" hint="Medicare locality 99, rest of Michigan" onClick={() => patch({ locality: "99" })} />
               </div>
               <p className="mt-2 text-sm leading-normal text-muted">Medicare allowed amounts follow the office. {OFFICES[worksheet.locality]}. Telehealth on this sheet uses that same locality.</p>
-            </fieldset>
-            <fieldset className="mt-4">
-              <legend className="text-sm font-medium text-ink">Multiple dates</legend>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <Choice pressed={worksheet.span === "per-date"} label="Each date" hint="Only if the plan requires a base code per day" onClick={() => patch({ span: "per-date" satisfies Span })} />
-                <Choice pressed={worksheet.span === "episode"} label="Whole episode" hint="One base code, reported on the last date" onClick={() => patch({ span: "episode" })} />
-              </div>
             </fieldset>
             <fieldset className="mt-4">
               <legend className="text-sm font-medium text-ink">What kind of evaluation</legend>
@@ -314,26 +348,140 @@ export function Desk() {
                 <p className="mt-2 text-sm leading-normal text-muted">An LLP does not bill 96132 or 96133. Neuropsychological testing evaluation stays with the supervising LP, and only for the LP's own time.</p>
               ) : null}
             </fieldset>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <fieldset className="mt-4">
+              <legend className="text-sm font-medium text-ink">Where</legend>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <Choice pressed={worksheet.setting === "in-person"} label="In person" hint="Default for test administration" onClick={() => patch({ setting: "in-person" satisfies Setting })} />
+                <Choice pressed={worksheet.setting === "telehealth"} label="Telehealth" hint="Confirm before coding administration" onClick={() => patch({ setting: "telehealth" })} />
+              </div>
+            </fieldset>
+            <Disclosure
+              className="mt-4"
+              title="Plan rules"
+              summary={`${worksheet.span === "episode" ? "Whole episode" : "Each date"} · ${worksheet.timeRule === "midpoint" ? "CPT midpoint" : "Completed blocks"}${worksheet.span !== plan.span || worksheet.timeRule !== plan.timeRule ? " · changed from the plan default" : " · set by the plan"}`}
+            >
               <fieldset>
-                <legend className="text-sm font-medium text-ink">Where</legend>
-                <div className="mt-2 grid gap-2">
-                  <Choice pressed={worksheet.setting === "in-person"} label="In person" hint="Default for test administration" onClick={() => patch({ setting: "in-person" satisfies Setting })} />
-                  <Choice pressed={worksheet.setting === "telehealth"} label="Telehealth" hint="Confirm before coding administration" onClick={() => patch({ setting: "telehealth" })} />
+                <legend className="text-sm font-medium text-ink">Multiple dates</legend>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  <Choice pressed={worksheet.span === "per-date"} label="Each date" hint="Only if the plan requires a base code per day" onClick={() => patch({ span: "per-date" satisfies Span })} />
+                  <Choice pressed={worksheet.span === "episode"} label="Whole episode" hint="One base code, reported on the last date" onClick={() => patch({ span: "episode" })} />
                 </div>
               </fieldset>
-              <fieldset>
+              <fieldset className="mt-4">
                 <legend className="text-sm font-medium text-ink">How this plan counts time</legend>
-                <div className="mt-2 grid gap-2">
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
                   <Choice pressed={worksheet.timeRule === "midpoint"} label="CPT midpoint" hint="31 min of an hour, 16 of 30" onClick={() => patch({ timeRule: "midpoint" satisfies TimeRule })} />
                   <Choice pressed={worksheet.timeRule === "completed"} label="Completed blocks" hint="Full 60 or full 30 only" onClick={() => patch({ timeRule: "completed" })} />
                 </div>
               </fieldset>
-            </div>
+            </Disclosure>
           </Section>
 
           <Section
             index="02"
+            title="Tests and administration"
+            lede={
+              worksheet.license === "llp"
+                ? "An LLP's administration is technician time on the supervising LP's claim, 96138 and 96139, not 96136. Two or more tests are still required."
+                : "Giving the tests and scoring them. Scoring follows the person who scores. The report does not go here. 96136 and 96138 need two or more tests."
+            }
+          >
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <p className="text-sm leading-normal text-muted">
+                {worksheet.tests.length === 0
+                  ? "Select the instruments. Typical time is a starting point, not the chart."
+                  : `Typical administration for the selected tests is ${suggestion.admin} min. Professional time is about ${evalMinutes(suggestion.activities)} min.${suggestion.ratingScales.length > 0 ? ` ${suggestion.ratingScales.join(", ")} ${suggestion.ratingScales.length === 1 ? "is a rating scale" : "are rating scales"} completed on their own, so only your scoring time counts. Add it by hand.` : ""}`}
+              </p>
+              <button type="button" className={button("primary")} disabled={worksheet.tests.length === 0} onClick={applyTypical}>Use typical time</button>
+            </div>
+            {worksheet.tests.length > 0 ? (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {worksheet.tests.map((name) => (
+                  <li key={name}>
+                    <button type="button" className="h-11 rounded-md bg-accent px-3 text-sm text-on-accent" onClick={() => toggleNamed("tests", name)} aria-label={`Remove ${name}`}>
+                      {name}
+                      <span className="ml-2" aria-hidden>×</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-muted">No instruments yet. Two or more are required before administration codes appear.</p>
+            )}
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  submitQuery();
+                }
+                if (event.key === "Escape") setQuery("");
+              }}
+              placeholder="Find or add a test"
+              aria-label="Find or add a test"
+              className="mt-3 h-11 w-full rounded-md border border-line bg-paper px-3 text-base text-ink placeholder:text-faint"
+            />
+            {customName ? (
+              <button
+                type="button"
+                className={`${button("quiet")} mt-2`}
+                onClick={() => {
+                  addCustom(customName);
+                  setQuery("");
+                }}
+              >
+                <Plus className="mr-2 size-4" aria-hidden />
+                Add “{customName}” as a custom instrument
+              </button>
+            ) : null}
+            {!searching && worksheet.tests.length > 0 ? (
+              <button type="button" aria-expanded={browse} className={`${button("ghost")} mt-2 px-0`} onClick={() => setBrowse((open) => !open)}>
+                <ChevronDown className={`mr-1 size-4 transition-transform ${browse ? "rotate-180" : ""}`} aria-hidden />
+                {browse ? "Hide the test list" : `Browse all ${TESTS.length} tests`}
+              </button>
+            ) : null}
+            <div className={`mt-3 flex flex-col gap-3 ${showCatalog ? "" : "hidden"}`}>
+              {GROUPS.map((group) => {
+                const tests = visible.filter((test) => test.group === group);
+                if (tests.length === 0) return null;
+                return (
+                  <div key={group}>
+                    <h3 className="text-sm font-medium text-muted">{group}</h3>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {tests.map((test) => {
+                        const on = worksheet.tests.some((name) => name.toLowerCase() === test.name.toLowerCase());
+                        return (
+                          <button key={test.name} type="button" aria-pressed={on} onClick={() => toggleNamed("tests", test.name)} className={`min-h-11 rounded-md border px-3 py-2 text-left text-sm ${on ? "border-accent bg-accent text-on-accent" : "border-line bg-paper text-ink"}`}>
+                            {test.name}
+                            <span className={`ml-2 ${on ? "text-on-accent" : "text-faint"}`}>{test.minutes} min</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {worksheet.tests.length === 1 ? (
+              <label className="mt-4 flex items-start gap-3 text-sm leading-normal text-ink">
+                <input type="checkbox" className="mt-1 size-4" checked={worksheet.singleAutomated} onChange={(event) => patch({ singleAutomated: event.target.checked })} />
+                Single automated electronic instrument. This is 96146 once, not a timed administration code.
+              </label>
+            ) : null}
+            <div className="mt-4 grid gap-3">
+              <AdminRow
+                label={worksheet.license === "llp" ? "LLP gave the tests" : "Psychologist"}
+                hint={worksheet.license === "llp" ? "Becomes 96138 on the supervising LP's claim." : suggestion.admin ? `Typical ${suggestion.admin} min` : "96136 and 96137"}
+                value={worksheet.adminQhp}
+                onChange={(adminQhp) => patch({ adminQhp })}
+              />
+              <AdminRow label="Technician or psychometrist" hint="96138 and 96139" value={worksheet.adminTech} onChange={(adminTech) => patch({ adminTech })} />
+            </div>
+          </Section>
+
+          <Section
+            index="03"
             title="Professional work"
             lede={
               worksheet.license === "llp"
@@ -386,93 +534,6 @@ export function Desk() {
             )}
           </Section>
 
-          <Section
-            index="03"
-            title="Tests and administration"
-            lede={
-              worksheet.license === "llp"
-                ? "An LLP's administration is technician time on the supervising LP's claim, 96138 and 96139, not 96136. Two or more tests are still required."
-                : "Giving the tests and scoring them. Scoring follows the person who scores. The report does not go here. 96136 and 96138 need two or more tests."
-            }
-          >
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <p className="text-sm leading-normal text-muted">
-                {worksheet.tests.length === 0
-                  ? "Select the instruments. Typical time is a starting point, not the chart."
-                  : `Typical administration for the selected tests is ${suggestion.admin} min. Professional time is about ${evalMinutes(suggestion.activities)} min.${suggestion.ratingScales.length > 0 ? ` ${suggestion.ratingScales.join(", ")} ${suggestion.ratingScales.length === 1 ? "is a rating scale" : "are rating scales"} completed on their own, so only your scoring time counts. Add it by hand.` : ""}`}
-              </p>
-              <button type="button" className={button("primary")} disabled={worksheet.tests.length === 0} onClick={applyTypical}>Use typical time</button>
-            </div>
-            {worksheet.tests.length > 0 ? (
-              <ul className="mt-3 flex flex-wrap gap-2">
-                {worksheet.tests.map((name) => (
-                  <li key={name}>
-                    <button type="button" className="h-11 rounded-md bg-accent px-3 text-sm text-on-accent" onClick={() => toggleNamed("tests", name)} aria-label={`Remove ${name}`}>
-                      {name}
-                      <span className="ml-2" aria-hidden>×</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-3 text-sm text-muted">No instruments yet. Two or more are required before administration codes appear.</p>
-            )}
-            <div className="mt-3 flex gap-2">
-              <input
-                value={draftName}
-                onChange={(event) => setDraftName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addInstrument();
-                  }
-                }}
-                placeholder="Add an instrument"
-                aria-label="Instrument name"
-                className="h-11 min-w-0 flex-1 rounded-md border border-line bg-paper px-3 text-base text-ink placeholder:text-faint"
-              />
-              <button type="button" className={button("quiet")} onClick={addInstrument}>Add</button>
-            </div>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a test" aria-label="Find a test" className="mt-3 h-11 w-full rounded-md border border-line bg-paper px-3 text-base text-ink placeholder:text-faint" />
-            <div className="mt-3 flex flex-col gap-3">
-              {GROUPS.map((group) => {
-                const tests = visible.filter((test) => test.group === group);
-                if (tests.length === 0) return null;
-                return (
-                  <div key={group}>
-                    <h3 className="text-sm font-medium text-muted">{group}</h3>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {tests.map((test) => {
-                        const on = worksheet.tests.some((name) => name.toLowerCase() === test.name.toLowerCase());
-                        return (
-                          <button key={test.name} type="button" aria-pressed={on} onClick={() => toggleNamed("tests", test.name)} className={`min-h-11 rounded-md border px-3 py-2 text-left text-sm ${on ? "border-accent bg-accent text-on-accent" : "border-line bg-paper text-ink"}`}>
-                            {test.name}
-                            <span className={`ml-2 ${on ? "text-on-accent" : "text-faint"}`}>{test.minutes} min</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {worksheet.tests.length === 1 ? (
-              <label className="mt-4 flex items-start gap-3 text-sm leading-normal text-ink">
-                <input type="checkbox" className="mt-1 size-4" checked={worksheet.singleAutomated} onChange={(event) => patch({ singleAutomated: event.target.checked })} />
-                Single automated electronic instrument. This is 96146 once, not a timed administration code.
-              </label>
-            ) : null}
-            <div className="mt-4 grid gap-3">
-              <AdminRow
-                label={worksheet.license === "llp" ? "LLP gave the tests" : "Psychologist"}
-                hint={worksheet.license === "llp" ? "Becomes 96138 on the supervising LP's claim." : suggestion.admin ? `Typical ${suggestion.admin} min` : "96136 and 96137"}
-                value={worksheet.adminQhp}
-                onChange={(adminQhp) => patch({ adminQhp })}
-              />
-              <AdminRow label="Technician or psychometrist" hint="96138 and 96139" value={worksheet.adminTech} onChange={(adminTech) => patch({ adminTech })} />
-            </div>
-          </Section>
-
           <Section index="04" title="Kept separate" lede="These are not part of the testing evaluation. A diagnostic interview, a neurobehavioral status exam, and brief screeners each have their own code.">
             <label className="flex items-start gap-3 text-sm leading-normal text-ink">
               <input type="checkbox" className="mt-1 size-4" checked={worksheet.diagnosticInterview} onChange={(event) => patch({ diagnosticInterview: event.target.checked })} />
@@ -502,8 +563,8 @@ export function Desk() {
           </Section>
 
           <section className="rounded-xl border border-line bg-card p-4">
-            <h2 className="font-serif text-xl text-ink">Which code is which</h2>
-            <ul className="mt-3">
+            <Disclosure title="Which code is which" summary={`${CODE_GUIDE.length} codes this sheet can suggest, and when each applies`} heading>
+            <ul>
               {CODE_GUIDE.map((item) => (
                 <li key={item.code} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-t border-line py-3">
                   <span className="font-mono text-sm text-ink tabular-nums">{item.code}</span>
@@ -514,10 +575,55 @@ export function Desk() {
                 </li>
               ))}
             </ul>
+            </Disclosure>
           </section>
         </div>
         <Claim result={result} quote={quote} missed={missed} worksheet={worksheet} rates={rates} onRate={(license, code, amount) => setRates((current) => { const key = rateKey(worksheet.payer, license, code); const next = { ...current }; if (amount == null) delete next[key]; else next[key] = amount; return next; })} onFill={(license, percent) => setRates((current) => fillRates(current, worksheet.payer, license, worksheet.locality, percent))} />
       </main>
+      <MobileSummary result={result} quote={quote} worksheet={worksheet} />
+    </div>
+  );
+}
+
+function hasWork(w: Worksheet): boolean {
+  return w.tests.length > 0 || w.screeners.length > 0 || w.adminQhp > 0 || w.adminTech > 0 || w.neurobehavioral > 0 || w.diagnosticInterview || w.dates.some((day) => evalMinutes(day.activities) > 0);
+}
+
+type PricedRow = { key: string; code: string; units: number; rendering: License; cents: number | null; extended: number | null; source: ReturnType<typeof priceClaim>["lines"][number]["source"] };
+
+/** One row per code and rendering clinician, so multi-date lines collapse into a single total. */
+function priceRows(quote: ReturnType<typeof priceClaim>): PricedRow[] {
+  const rows = new Map<string, PricedRow>();
+  for (const line of quote.lines) {
+    const key = `${line.rendering}|${line.code}`;
+    const found = rows.get(key);
+    if (!found) rows.set(key, { key, code: line.code, units: line.units, rendering: line.rendering, cents: line.cents, extended: line.extended, source: line.source });
+    else {
+      found.units += line.units;
+      found.extended = found.extended == null || line.extended == null ? null : found.extended + line.extended;
+    }
+  }
+  return [...rows.values()];
+}
+
+function MobileSummary({ result, quote, worksheet }: { result: ReturnType<typeof codeWorksheet>; quote: ReturnType<typeof priceClaim>; worksheet: Worksheet }) {
+  const units = result.totals.reduce((sum, item) => sum + item.units, 0);
+  const holds = result.flags.filter((flag) => flag.tone === "hold").length;
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-10 border-t border-line bg-card/95 px-4 py-3 backdrop-blur no-print lg:hidden">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-mono text-sm text-ink tabular-nums">
+            {result.totals.length === 0 ? "No codes yet" : result.totals.map((item) => `${item.code}×${item.units}`).join("  ")}
+          </p>
+          <p className="text-sm text-muted">
+            {result.totals.length === 0
+              ? "Enter tests and time."
+              : `${units} ${units === 1 ? "unit" : "units"} · ${quote.allowedCents != null ? `${money(quote.allowedCents)} allowed` : worksheet.payer === "cpt" ? "Pick a plan for dollars" : "Rates missing"}${holds ? ` · ${holds} to fix` : ""}`}
+          </p>
+        </div>
+        <a href="#claim" className={`${button("primary")} shrink-0 whitespace-nowrap`}>See codes</a>
+      </div>
     </div>
   );
 }
@@ -542,117 +648,145 @@ function Claim({
   const own = result.lines.filter((line) => line.billedBy !== "supervisor");
   const supervisor = result.lines.filter((line) => line.billedBy === "supervisor");
   const llp = worksheet.license === "llp";
+  const rows = priceRows(quote);
+  const missing = rows.filter((row) => row.source === "missing").length;
+  const checks = missed.length + result.pending.length + result.suppressed.length + result.flags.length;
+  const holds = result.flags.filter((flag) => flag.tone === "hold").length + result.suppressed.length;
+  const status =
+    rows.length === 0
+      ? null
+      : worksheet.payer === "cpt"
+        ? "Pick a plan to see dollars. CPT alone has no fee."
+        : missing > 0
+          ? `Add a contract rate for ${missing} ${missing === 1 ? "code" : "codes"} under Rates.`
+          : quote.medicareShareCents != null && quote.coinsuranceCents != null
+            ? `Medicare pays ${money(quote.medicareShareCents)} once the deductible is met. Coinsurance ${money(quote.coinsuranceCents)}. Before the 2% sequestration cut.`
+            : worksheet.payer === "uhc-ma"
+              ? `Medicare allowed for ${OFFICES[worksheet.locality]}. An Advantage contract can differ.`
+              : "From the contract rates on file.";
   return (
     <aside id="claim" className="claim-panel rounded-xl border border-line bg-card p-4">
       <p className="font-mono text-xs text-faint">Claim draft</p>
       <h2 className="font-serif text-xl leading-snug text-ink">What to bill</h2>
       <p className="mt-1 text-sm text-muted">
-        {payerProfile(worksheet.payer).label}. {llp ? "LLP." : "LP."} {worksheet.timeRule === "midpoint" ? "Using the CPT midpoint." : "Using completed blocks only."}{" "}
-        {worksheet.dates.length > 1 ? (worksheet.span === "episode" ? "One episode on the last date." : `${worksheet.dates.length} dates. Each date starts the professional hour over.`) : "One date of service."}
+        {payerProfile(worksheet.payer).label} · {llp ? "LLP" : "LP"} · {worksheet.timeRule === "midpoint" ? "CPT midpoint" : "Completed blocks"} ·{" "}
+        {worksheet.dates.length > 1 ? (worksheet.span === "episode" ? "one episode on the last date" : `${worksheet.dates.length} dates, each its own base code`) : "one date of service"}
       </p>
-      {result.totals.length > 0 ? (
-        <div className="mt-3">
-          <p className="text-sm font-medium text-ink">Total units</p>
-          <ul className="mt-1">
-            {result.totals.map((item) => (
-              <li key={`${item.billedBy}-${item.code}`} className="flex items-baseline justify-between border-t border-line py-2">
-                <span className="font-mono text-base text-ink tabular-nums">{item.code}{item.billedBy === "supervisor" ? " · LP" : ""}</span>
-                <span className="font-mono text-base text-ink tabular-nums">× {item.units}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div aria-live="polite">
-        {result.lines.length === 0 ? (
-          <p className="mt-4 text-sm leading-normal text-muted">{result.suppressed.length > 0 ? "Nothing this license can bill from the time entered." : "Nothing to bill yet. Enter time for the report, test selection, information gathering, or administration of two or more tests."}</p>
-        ) : llp ? (
-          <div className="mt-2">
-            <LineGroup label="LLP" lines={own} empty="Nothing on the LLP's own claim." />
-            <LineGroup label="Supervising LP" lines={supervisor} empty="Nothing from this worksheet. Do not move the LLP's evaluation time onto the LP." />
-          </div>
+
+      <div aria-live="polite" className="mt-3 rounded-md bg-inset p-3">
+        {rows.length === 0 ? (
+          <p className="text-sm leading-normal text-muted">
+            {result.suppressed.length > 0 ? "Nothing this license can bill from the time entered." : "Nothing to bill yet. Add two or more tests and the time, or start from an example."}
+          </p>
         ) : (
-          <ul className="mt-2">{own.map((line, index) => <LineView key={`${index}-${line.dayLabel ?? ""}-${line.code}`} line={line} />)}</ul>
+          <>
+            <p className="text-sm text-muted">Expected allowed</p>
+            <p className="font-serif text-3xl leading-tight text-ink tabular-nums">{quote.allowedCents == null ? "—" : money(quote.allowedCents)}</p>
+            {status ? <p className="mt-1 text-sm leading-normal text-muted">{status}</p> : null}
+            <ul className="mt-3">
+              {rows.map((row) => (
+                <li key={row.key} className="flex items-baseline justify-between gap-3 border-t border-line py-2">
+                  <span className="font-mono text-base text-ink tabular-nums">
+                    {row.code} <span className="text-muted">× {row.units}</span>
+                    {llp && row.rendering === "lp" ? <span className="text-sm text-muted"> · LP</span> : null}
+                  </span>
+                  <span className="font-mono text-sm text-ink tabular-nums">{row.source === "unpayable" ? "not payable" : row.extended == null ? "—" : money(row.extended)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </div>
-      {missed.length > 0 ? (
-        <div className="mt-3">
-          <p className="text-sm font-medium text-ink">Might be missing</p>
+
+      {result.lines.length > 0 ? (
+        <div className="mt-3 grid grid-cols-2 gap-2 no-print">
+          <Copy label="Copy note" text={result.note} tone="primary" />
+          <Copy label="Copy codes" text={result.codesText || "No codes"} tone="quiet" />
+        </div>
+      ) : null}
+
+      {checks > 0 ? (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-ink">
+            Review before billing <span className="font-mono text-muted tabular-nums">· {checks}</span>
+            {holds > 0 ? <span className="ml-2 rounded-sm bg-warn-soft px-1.5 py-0.5 text-xs text-warn">{holds} to fix</span> : null}
+          </p>
           <ul className="mt-2 flex flex-col gap-2">
+            {result.suppressed.map((item) => (
+              <li key={item.label} className="rounded-md bg-warn-soft px-3 py-2 text-sm leading-normal text-warn"><span className="font-medium">Not coded. </span>{item.reason}</li>
+            ))}
+            {result.flags.filter((flag) => flag.tone === "hold").map((flag) => (
+              <li key={flag.text} className="rounded-md bg-warn-soft px-3 py-2 text-sm leading-normal text-warn"><span className="font-medium">Do not report. </span>{flag.text}</li>
+            ))}
             {missed.map((item) => (
-              <li key={item.text} className="rounded-md bg-inset px-3 py-2 text-sm leading-normal text-ink"><span className="font-mono">{item.code}. </span>{item.text}</li>
+              <li key={item.text} className="rounded-md bg-inset px-3 py-2 text-sm leading-normal text-ink"><span className="font-medium">Might be missing {item.code}. </span>{item.text}</li>
+            ))}
+            {result.pending.map((item) => (
+              <li key={item.title} className="rounded-md bg-inset px-3 py-2 text-sm leading-normal text-ink"><span className="font-medium">Short of a unit. </span>{item.title}. {item.detail}</li>
+            ))}
+            {result.flags.filter((flag) => flag.tone !== "hold").map((flag) => (
+              <li key={flag.text} className="rounded-md bg-inset px-3 py-2 text-sm leading-normal text-ink"><span className="font-medium">Check. </span>{flag.text}</li>
             ))}
           </ul>
         </div>
       ) : null}
-      {result.pending.length > 0 ? (
-        <div className="mt-2">
-          <p className="text-sm font-medium text-ink">Short of a unit</p>
-          <ul className="mt-1">{result.pending.map((item) => <li key={item.title} className="mt-1 text-sm text-muted">{item.title}. {item.detail}</li>)}</ul>
-        </div>
+
+      {result.lines.length > 0 ? (
+        <Disclosure className="mt-4 border-t border-line pt-3" title="How the units were counted" summary="Minutes behind each line">
+          {llp ? (
+            <div>
+              <LineGroup label="LLP" lines={own} empty="Nothing on the LLP's own claim." />
+              <LineGroup label="Supervising LP" lines={supervisor} empty="Nothing from this worksheet. Do not move the LLP's evaluation time onto the LP." />
+            </div>
+          ) : (
+            <ul>{own.map((line, index) => <LineView key={`${index}-${line.dayLabel ?? ""}-${line.code}`} line={line} />)}</ul>
+          )}
+        </Disclosure>
       ) : null}
-      {result.suppressed.length > 0 ? <ul className="mt-3">{result.suppressed.map((item) => <li key={item.label} className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">{item.reason}</li>)}</ul> : null}
-      {result.flags.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {result.flags.map((flag) => (
-            <li key={flag.text} className={`rounded-md px-3 py-2 text-sm leading-normal ${flag.tone === "hold" ? "bg-warn-soft text-warn" : "bg-inset text-ink"}`}>
-              <span className="font-medium">{flag.tone === "hold" ? "Do not report. " : "Check. "}</span>{flag.text}
-            </li>
-          ))}
-        </ul>
+
+      {rows.length > 0 && worksheet.payer !== "cpt" ? (
+        <Disclosure className="mt-3 border-t border-line pt-3" title="Rates" summary={missing > 0 ? `${missing} missing` : usesMedicareFee(worksheet.payer) ? "WPS 2026 office rates" : "Contract rates on file"} defaultOpen={missing > 0}>
+          <Pay rows={rows} worksheet={worksheet} rates={rates} onRate={onRate} onFill={onFill} />
+        </Disclosure>
       ) : null}
-      <Pay quote={quote} worksheet={worksheet} rates={rates} onRate={onRate} onFill={onFill} />
-      <div className="mt-4 grid gap-2 no-print">
-        <Copy label="Copy support note" text={result.note} tone="primary" />
-        <Copy label="Copy codes" text={result.codesText || "No codes"} tone="quiet" />
-      </div>
-      <p className="mt-4 text-sm leading-normal text-muted">Worksheet only. Not a claim and not a benefits quote. Medicare amounts are the 2026 WPS participating office rate. Commercial amounts are the contract rates you enter. Deductible, coinsurance, and sequestration are not a payment promise. Rules reviewed {reviewedLabel()}.</p>
+
+      <p className="mt-4 text-sm leading-normal text-muted">Worksheet only. Not a claim and not a benefits quote. Medicare amounts are the 2026 WPS participating office rate, not the facility rate. Commercial amounts are the contract rates you enter. Deductible, coinsurance, and sequestration are not a payment promise. Rules reviewed {reviewedLabel()}.</p>
     </aside>
   );
 }
 
-function Pay({ quote, worksheet, rates, onRate, onFill }: { quote: ReturnType<typeof priceClaim>; worksheet: Worksheet; rates: Rates; onRate: (license: License, code: string, amount: number | null) => void; onFill: (license: License, percent: number) => void }) {
+function Pay({ rows, worksheet, rates, onRate, onFill }: { rows: PricedRow[]; worksheet: Worksheet; rates: Rates; onRate: (license: License, code: string, amount: number | null) => void; onFill: (license: License, percent: number) => void }) {
   const [percent, setPercent] = useState("100");
   const commercial = worksheet.payer === "bcbsm" || worksheet.payer === "bcn" || worksheet.payer === "aetna" || worksheet.payer === "uhc";
-  const seen = new Set<string>();
-  const intro = worksheet.payer === "cpt" ? "Pick a plan. CPT has no dollar amount." : worksheet.payer === "medicare" ? `Original Medicare, participating psychologist, office. ${OFFICES[worksheet.locality]}.` : worksheet.payer === "uhc-ma" ? `Priced at the Medicare allowed amount for ${OFFICES[worksheet.locality]}. An Advantage contract can differ.` : `${payerProfile(worksheet.payer).label} does not publish this practice's allowed amount. Enter it from the contract or a remittance.`;
+  const intro = worksheet.payer === "medicare" ? `Original Medicare, participating psychologist, office. ${OFFICES[worksheet.locality]}. Type over a rate to override it.` : worksheet.payer === "uhc-ma" ? `Priced at the Medicare allowed amount for ${OFFICES[worksheet.locality]}. Type your Advantage contract rate to override it.` : `${payerProfile(worksheet.payer).label} does not publish this practice's allowed amount. Enter it from the contract or a remittance. Rates are saved on this browser.`;
   return (
-    <div className="mt-4 border-t border-line pt-4">
-      <h3 className="text-base font-medium text-ink">Expected allowed</h3>
-      <p className="mt-1 text-sm leading-normal text-muted">{intro}</p>
-      {quote.lines.length > 0 ? (
-        <ul>
-          {quote.lines.map((line) => {
-            const mark = `${line.rendering}|${line.code}`;
-            const first = !seen.has(mark);
-            seen.add(mark);
-            return (
-              <li key={line.key} className="border-t border-line py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className="font-mono text-sm text-ink tabular-nums">{line.code} × {line.units}{line.rendering === "lp" && worksheet.license === "llp" ? " · LP" : ""}</p>
-                  <p className="font-mono text-sm text-ink tabular-nums">{line.extended == null ? "—" : money(line.extended)}</p>
-                </div>
-                {line.dayLabel ? <p className="font-mono text-xs text-faint">{line.dayLabel}</p> : null}
-                <p className="text-sm text-muted">{line.source === "unpayable" ? "Not payable. Medicare does not enroll a master's LLP as the rendering psychologist." : line.source === "missing" ? "No contract rate on file for this license." : line.source === "contract" ? "Contract rate on file." : worksheet.payer === "uhc-ma" ? "WPS 2026 Medicare allowed, office." : "WPS 2026 participating, office."}</p>
-                {first && line.source !== "unpayable" ? <RateField payer={worksheet.payer} locality={worksheet.locality} code={line.code} stored={rates[rateKey(worksheet.payer, line.rendering, line.code)]} onCommit={(amount) => onRate(line.rendering, line.code, amount)} /> : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      <p className="mt-3 text-sm font-medium text-ink">{quote.allowedCents == null ? "Total incomplete. A billed code has no rate." : `Allowed ${money(quote.allowedCents)}`}</p>
-      {quote.medicareShareCents != null && quote.coinsuranceCents != null ? <p className="mt-1 text-sm leading-normal text-muted">Medicare pays {money(quote.medicareShareCents)} after the deductible is met. Coinsurance is {money(quote.coinsuranceCents)}. The 2% sequestration cut is not taken out.</p> : null}
+    <div>
+      <p className="text-sm leading-normal text-muted">{intro}</p>
+      <ul className="mt-2">
+        {rows.map((row) => (
+          <li key={row.key} className="flex items-center justify-between gap-3 border-t border-line py-2">
+            <span className="font-mono text-sm text-ink tabular-nums">
+              {row.code}
+              {row.rendering === "lp" && worksheet.license === "llp" ? " · LP" : ""}
+              <span className="block font-sans text-xs text-muted">{row.source === "unpayable" ? "Medicare does not enroll an LLP" : row.source === "missing" ? "No rate yet" : row.source === "contract" ? "Contract rate" : "WPS 2026"}</span>
+            </span>
+            {row.source === "unpayable" ? null : <RateField payer={worksheet.payer} locality={worksheet.locality} code={row.code} stored={rates[rateKey(worksheet.payer, row.rendering, row.code)]} onCommit={(amount) => onRate(row.rendering, row.code, amount)} />}
+          </li>
+        ))}
+      </ul>
       {commercial ? (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="block">
-            <span className="text-sm text-muted">Percent of Medicare</span>
-            <input inputMode="numeric" value={percent} aria-label="Percent of Medicare" onChange={(event) => setPercent(event.target.value.replace(/\D/g, "").slice(0, 3))} className="mt-1 h-11 w-24 rounded-md border border-line bg-paper px-3 text-base text-ink tabular-nums" />
-          </label>
-          <button type="button" className={button("quiet")} onClick={() => onFill(worksheet.license, Number(percent) || 100)}>Fill empty {worksheet.license === "llp" ? "LLP" : "LP"} rates</button>
-          {worksheet.license === "llp" ? <button type="button" className={button("quiet")} onClick={() => onFill("lp", Number(percent) || 100)}>Fill empty LP rates</button> : null}
+        <div className="mt-3 rounded-md bg-inset p-3">
+          <p className="text-sm leading-normal text-muted">No contract handy? Fill the empty rates from a percent of Medicare. It is a stand-in, not the contract, and a rate you already typed is left alone.</p>
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="block">
+              <span className="text-sm text-muted">Percent of Medicare</span>
+              <input inputMode="numeric" value={percent} aria-label="Percent of Medicare" onChange={(event) => setPercent(event.target.value.replace(/\D/g, "").slice(0, 3))} className="mt-1 h-11 w-24 rounded-md border border-line bg-paper px-3 text-base text-ink tabular-nums" />
+            </label>
+            <button type="button" className={button("quiet")} onClick={() => onFill(worksheet.license, Number(percent) || 100)}>Fill empty {worksheet.license === "llp" ? "LLP" : "LP"} rates</button>
+            {worksheet.license === "llp" ? <button type="button" className={button("quiet")} onClick={() => onFill("lp", Number(percent) || 100)}>Fill empty LP rates</button> : null}
+          </div>
         </div>
       ) : null}
-      <p className="mt-2 text-sm leading-normal text-muted">{commercial ? "Filling from Medicare is a stand-in, not the contract. A rate you already typed is left alone." : "Office rate, not the facility rate. A hospital place of service pays less."}</p>
     </div>
   );
 }
@@ -665,14 +799,17 @@ function RateField({ payer, locality, code, stored, onCommit }: { payer: Payer; 
   const [value, setValue] = useState(shown);
   useEffect(() => setValue(shown), [shown]);
   return (
-    <label className="mt-2 flex items-center gap-2">
-      <span className="text-sm text-muted">Per unit</span>
+    <label className="flex shrink-0 items-center gap-1">
+      <span className="text-sm text-muted" aria-hidden>$</span>
       <input
         inputMode="decimal"
-        aria-label={`Allowed amount for ${code}`}
+        aria-label={`Allowed amount per unit for ${code}`}
         value={value}
-        placeholder="Contract allowed"
+        placeholder="per unit"
         onChange={(event) => setValue(event.target.value.replace(/[^0-9.]/g, "").slice(0, 8))}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
         onBlur={() => {
           const trimmed = value.trim();
           if (!trimmed) {
@@ -687,7 +824,7 @@ function RateField({ payer, locality, code, stored, onCommit }: { payer: Payer; 
           const rounded = Math.round(amount * 100) / 100;
           onCommit(medicare && dollars != null && rounded === dollars ? null : rounded);
         }}
-        className="h-11 w-28 rounded-md border border-line bg-paper px-3 text-base text-ink tabular-nums"
+        className="h-11 w-28 rounded-md border border-line bg-paper px-3 text-right text-base text-ink tabular-nums placeholder:text-faint"
       />
     </label>
   );
@@ -781,6 +918,26 @@ function Section({ index, title, lede, children }: { index: string; title: strin
       </div>
       {children}
     </section>
+  );
+}
+
+function Disclosure({ title, summary, children, className = "", defaultOpen = false, heading = false }: { title: string; summary?: string; children: ReactNode; className?: string; defaultOpen?: boolean; heading?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  // Opens itself when it starts needing attention, but never snaps shut while someone is using it.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+  return (
+    <details className={`group ${className}`} open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className={heading ? "block font-serif text-xl leading-snug text-ink" : "block text-sm font-medium text-ink"}>{title}</span>
+          {summary ? <span className="block text-sm text-muted">{summary}</span> : null}
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <div className="pt-2">{children}</div>
+    </details>
   );
 }
 
