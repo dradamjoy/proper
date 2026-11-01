@@ -287,7 +287,7 @@ export function Desk() {
                   <Choice key={plan.id} pressed={worksheet.payer === plan.id} label={plan.label} hint={plan.hint} onClick={() => selectPayer(plan.id)} />
                 ))}
               </div>
-              <p className="mt-2 text-sm leading-normal text-muted">{payerProfile(worksheet.payer).rule} Rules reviewed {reviewedLabel()}. Checked every Monday.</p>
+              <p className="mt-2 text-sm leading-normal text-muted">{payerProfile(worksheet.payer).rule} Rules reviewed {reviewedLabel()}.</p>
             </fieldset>
             <fieldset className="mt-4">
               <legend className="text-sm font-medium text-ink">Office</legend>
@@ -300,7 +300,7 @@ export function Desk() {
             <fieldset className="mt-4">
               <legend className="text-sm font-medium text-ink">Multiple dates</legend>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                <Choice pressed={worksheet.span === "per-date"} label="Each date" hint="A new base code when that day reaches an hour" onClick={() => patch({ span: "per-date" satisfies Span })} />
+                <Choice pressed={worksheet.span === "per-date"} label="Each date" hint="Only if the plan requires a base code per day" onClick={() => patch({ span: "per-date" satisfies Span })} />
                 <Choice pressed={worksheet.span === "episode"} label="Whole episode" hint="One base code, reported on the last date" onClick={() => patch({ span: "episode" })} />
               </div>
             </fieldset>
@@ -399,7 +399,7 @@ export function Desk() {
               <p className="text-sm leading-normal text-muted">
                 {worksheet.tests.length === 0
                   ? "Select the instruments. Typical time is a starting point, not the chart."
-                  : `Typical administration for the selected tests is ${suggestion.admin} min. Professional time is about ${evalMinutes(suggestion.activities)} min.`}
+                  : `Typical administration for the selected tests is ${suggestion.admin} min. Professional time is about ${evalMinutes(suggestion.activities)} min.${suggestion.ratingScales.length > 0 ? ` ${suggestion.ratingScales.join(", ")} ${suggestion.ratingScales.length === 1 ? "is a rating scale" : "are rating scales"} completed on their own, so only your scoring time counts. Add it by hand.` : ""}`}
               </p>
               <button type="button" className={button("primary")} disabled={worksheet.tests.length === 0} onClick={applyTypical}>Use typical time</button>
             </div>

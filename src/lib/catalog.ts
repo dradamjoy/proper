@@ -46,7 +46,7 @@ const ROWS: [string, string, number, TestKind, Domain | "either"][] = [
   ["Personality and emotional", "MCMI-IV", 30, "performance", "psychological"],
   ["Personality and emotional", "BASC-3", 20, "rating", "psychological"],
   ["Personality and emotional", "MACI-II", 30, "performance", "psychological"],
-  ["Autism and developmental", "ADOS-2", 50, "interview", "either"],
+  ["Autism and developmental", "ADOS-2", 50, "performance", "either"],
   ["Autism and developmental", "ADI-R", 90, "interview", "either"],
   ["Autism and developmental", "SRS-2", 15, "rating", "either"],
   ["Autism and developmental", "Vineland-3", 30, "rating", "either"],
@@ -69,9 +69,14 @@ export function findTest(name: string): TestInfo | undefined {
   return TESTS.find((test) => test.name.toLowerCase() === name.toLowerCase());
 }
 
-export function suggestTimes(names: string[], domain: Domain): { admin: number; interview: boolean; activities: Activities } {
+export function suggestTimes(names: string[], domain: Domain): { admin: number; interview: boolean; activities: Activities; ratingScales: string[] } {
   const chosen = names.map(findTest).filter((test): test is TestInfo => Boolean(test));
   const administered = chosen.filter((test) => test.kind !== "interview");
+  // Rating scales are usually completed by the patient or an informant on their own.
+  // Their completion time is not the clinician's administration time, so it is left out
+  // of the suggestion. Enter the scoring time actually spent.
+  const timed = administered.filter((test) => test.kind !== "rating");
+  const ratingScales = administered.filter((test) => test.kind === "rating").map((test) => test.name);
   const neuro = domain === "neuropsychological";
   const activities = { ...EMPTY_ACTIVITIES };
   if (administered.length > 0) {
@@ -81,5 +86,5 @@ export function suggestTimes(names: string[], domain: Domain): { admin: number; 
     activities.reportWriting = (neuro ? 90 : 60) + (administered.length > 6 ? 15 : 0);
     activities.feedback = 45;
   }
-  return { admin: administered.reduce((sum, test) => sum + test.minutes, 0), interview: chosen.some((test) => test.kind === "interview"), activities };
+  return { admin: timed.reduce((sum, test) => sum + test.minutes, 0), interview: chosen.some((test) => test.kind === "interview"), activities, ratingScales };
 }

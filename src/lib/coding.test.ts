@@ -90,7 +90,34 @@ describe("codeWorksheet", () => {
   });
 });
 
+describe("episode default", () => {
+  it("pools dates by default, as CPT reports the whole episode once", () => {
+    const dates = [
+      { id: "a", label: "Monday", activities: { ...EMPTY.dates[0].activities, reportWriting: 25 } },
+      { id: "b", label: "Wednesday", activities: { ...EMPTY.dates[0].activities, feedback: 25 } },
+    ];
+    const result = codeWorksheet({ ...EMPTY, tests: ["WAIS-IV", "PAI"], dates });
+    assert.equal(EMPTY.span, "episode");
+    assert.equal(result.lines.filter((line) => line.code === "96130").length, 1);
+    assert.equal(result.lines.find((line) => line.code === "96130")?.dayLabel, "Reported on Wednesday");
+    assert.equal(normalize({}).span, "episode");
+    assert.equal(normalize({ span: "per-date" }).span, "per-date");
+  });
+});
+
 describe("suggest and review", () => {
+  it("leaves informant rating scales out of suggested administration time", () => {
+    const suggestion = suggestTimes(["WAIS-IV", "BRIEF-A", "Conners 4"], "psychological");
+    assert.equal(suggestion.admin, 75);
+    assert.deepEqual(suggestion.ratingScales, ["BRIEF-A", "Conners 4"]);
+  });
+
+  it("treats the ADOS-2 as a test, not a diagnostic interview", () => {
+    const missed = missedCodes({ ...EMPTY, tests: ["ADOS-2", "Vineland-3"] });
+    assert.equal(missed.some((item) => item.code === "90791"), false);
+    assert.equal(suggestTimes(["ADOS-2"], "psychological").interview, false);
+  });
+
   it("suggests administration from the selected tests", () => {
     const suggestion = suggestTimes(["WAIS-IV", "Conners CPT 3", "PAI"], "psychological");
     assert.equal(suggestion.admin, 75 + 14 + 50);

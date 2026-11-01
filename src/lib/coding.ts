@@ -142,12 +142,12 @@ export const CODE_GUIDE = [
 ];
 
 export const PAYERS: { id: Payer; label: string; hint: string; span: Span; timeRule: TimeRule; rule: string }[] = [
-  { id: "cpt", label: "CPT only", hint: "No plan selected", span: "per-date", timeRule: "midpoint", rule: "Each date that reaches an hour gets its own base code." },
+  { id: "cpt", label: "CPT only", hint: "No plan selected", span: "episode", timeRule: "midpoint", rule: "CPT reports the total time when the whole evaluation is complete: one base code, add-on hours, on the last date." },
   { id: "medicare", label: "Medicare", hint: "WPS, original Medicare", span: "episode", timeRule: "midpoint", rule: "Combine every date and bill one base code on the last date." },
-  { id: "bcbsm", label: "Blue Cross", hint: "BCBSM commercial", span: "per-date", timeRule: "midpoint", rule: "No published multi-day rule. Each date keeps its own base code." },
-  { id: "bcn", label: "Blue Care Network", hint: "BCN commercial", span: "per-date", timeRule: "midpoint", rule: "Each date keeps its own base code. Confirm the member's network." },
-  { id: "aetna", label: "Aetna", hint: "Commercial", span: "per-date", timeRule: "midpoint", rule: "Each date keeps its own base code. Most commercial plans dropped routine precertification in 2019." },
-  { id: "uhc", label: "UnitedHealthcare", hint: "Commercial, often Optum", span: "per-date", timeRule: "midpoint", rule: "Each date keeps its own base code. Testing often needs Optum authorization." },
+  { id: "bcbsm", label: "Blue Cross", hint: "BCBSM commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Switch to Each date only if the contract says so." },
+  { id: "bcn", label: "Blue Care Network", hint: "BCN commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Confirm the member's network." },
+  { id: "aetna", label: "Aetna", hint: "Commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Most commercial plans dropped routine precertification in 2019." },
+  { id: "uhc", label: "UnitedHealthcare", hint: "Commercial, often Optum", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Testing often needs Optum authorization." },
   { id: "uhc-ma", label: "UHC Advantage", hint: "Medicare Advantage", span: "episode", timeRule: "midpoint", rule: "Combine every date and bill one base code on the last date. Authorization may still apply." },
 ];
 
@@ -157,7 +157,7 @@ export const EMPTY: Worksheet = {
   name: "",
   license: "lp",
   payer: "cpt",
-  span: "per-date",
+  span: "episode",
   domain: "psychological",
   setting: "in-person",
   locality: "01",
@@ -359,9 +359,7 @@ export function codeWorksheet(input: Worksheet): CodingResult {
         tone: "review",
         text: w.span === "episode"
           ? `${plan.label} reports this episode on ${last}. One base code, then add-on hours. Do not also bill a base code on the earlier dates.`
-          : w.payer === "cpt"
-            ? "Each date gets its own base code once that date reaches an hour. Hours are not added across dates. Medicare and some Medicare Advantage plans want the whole evaluation on the last date instead."
-            : `${plan.label} has no published multi-day rule on this sheet, so each date has its own base code. Switch Multiple dates to Whole episode if the plan wants one base code on the last date.`,
+          : `Each date is coded with its own base code, and hours are not added across dates. CPT reports the whole evaluation once, on the last date. Use Each date only when ${w.payer === "cpt" ? "a plan" : plan.label} requires it in writing, and keep each add-on on the same date as its base code.`,
       });
     }
   }
@@ -379,7 +377,12 @@ export function codeWorksheet(input: Worksheet): CodingResult {
     flags.push({ tone: "review", text: "Unit counts this high on one date often fail a medically unlikely edit. Confirm the payer’s limit and that every minute is documented." });
   }
   if (w.setting === "telehealth" && (w.adminQhp > 0 || w.adminTech > 0 || w.singleAutomated)) {
-    flags.push({ tone: "review", text: "Many plans and publishers do not cover remote test administration. Do not assume 96136, 96138, or 96146 are payable by telehealth. Evaluation and feedback time are more often allowed. Confirm the plan and each instrument." });
+    flags.push({
+      tone: "review",
+      text: usesMedicareList(w.payer)
+        ? "96130–96139 are on the 2026 Medicare telehealth list with two-way audio and video. Confirm each instrument's publisher permits remote administration, and that a technician can administer remotely under supervision."
+        : "Commercial plans and publishers vary on remote test administration. Do not assume 96136, 96138, or 96146 are payable by telehealth. Evaluation and feedback time are more often allowed. Confirm the plan and each instrument.",
+    });
   }
   const interviews = w.tests.filter((name) => /DIVA-5|CAADID/i.test(name));
   if (w.diagnosticInterview && interviews.length > 0) flags.push({ tone: "review", text: `${interviews.join(" and ")} is a structured diagnostic interview. Do not count it both as 90791 and as administration time.` });
@@ -472,10 +475,14 @@ function payerFlags(payer: Payer): Flag[] {
   return text[payer] ? [{ tone: "review", text: text[payer] }] : [];
 }
 
+function usesMedicareList(payer: Payer): boolean {
+  return payer === "medicare" || payer === "uhc-ma";
+}
+
 function staleFlag(): Flag[] {
   const reviewed = Date.parse(`${REVIEWED}T00:00:00Z`);
   if (!Number.isFinite(reviewed) || Date.now() - reviewed <= 8 * 24 * 60 * 60 * 1000) return [];
-  return [{ tone: "review", text: `Plan rules were last reviewed ${reviewedLabel()}. The weekly check is overdue. Confirm the plan before this goes on a claim.` }];
+  return [{ tone: "review", text: `Plan rules were last reviewed ${reviewedLabel()}. That is more than a week ago. Confirm the plan before this goes on a claim.` }];
 }
 
 export function rollup(lines: ClaimLine[]) {
@@ -595,7 +602,7 @@ export function normalize(input: unknown): Worksheet {
     name: typeof source.name === "string" ? source.name.slice(0, 80) : "",
     license: source.license === "llp" ? "llp" : "lp",
     payer: PAYER_IDS.has(String(source.payer)) ? (source.payer as Payer) : "cpt",
-    span: source.span === "episode" ? "episode" : "per-date",
+    span: source.span === "per-date" ? "per-date" : "episode",
     domain: source.domain === "neuropsychological" ? "neuropsychological" : "psychological",
     setting: source.setting === "telehealth" ? "telehealth" : "in-person",
     locality: source.locality === "99" ? "99" : "01",
