@@ -469,7 +469,7 @@ export function Desk() {
                             className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors ${on ? "border-accent bg-accent-soft font-medium text-accent" : "border-line bg-surface text-ink hover:border-faint"}`}
                           >
                             {test.name}
-                            <span className={on ? "text-accent/70" : "text-faint"}>{test.minutes}′</span>
+                            <span className={on ? "text-accent/70" : "text-faint"} title="Typical administration and scoring time">{test.minutes}′</span>
                           </button>
                         );
                       })}
@@ -488,8 +488,8 @@ export function Desk() {
             <div className="mt-6 flex flex-col items-start gap-3 rounded-control bg-sunken px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="min-w-0 flex-1 text-sm leading-relaxed text-muted">
                 {worksheet.tests.length === 0
-                  ? "Pick the instruments first. Typical time then fills administration and professional work as a starting point, not the chart."
-                  : `Typical for this battery: ${suggestion.admin} min administration, about ${evalMinutes(suggestion.activities)} min professional work.${suggestion.ratingScales.length > 0 ? ` ${suggestion.ratingScales.join(", ")} ${suggestion.ratingScales.length === 1 ? "is a rating scale" : "are rating scales"} completed on their own, so add only your scoring time.` : ""}`}
+                  ? "Pick the instruments first. The minutes beside each test are typical administration and scoring time only. They do not include test selection, information gathering, interpretation, report writing, or feedback, which are counted under Professional time. Use typical time fills both as a starting point, not the chart."
+                  : `Typical for this battery: ${suggestion.admin} min of administration and scoring. That covers giving and scoring the tests only, not test selection, information gathering, interpretation, report writing, or feedback. Those are estimated separately, about ${evalMinutes(suggestion.activities)} min, under Professional time.${suggestion.ratingScales.length > 0 ? ` ${suggestion.ratingScales.join(", ")} ${suggestion.ratingScales.length === 1 ? "is a rating scale" : "are rating scales"} completed on their own, so add only your scoring time.` : ""}`}
               </p>
               <button type="button" className={button("primary")} disabled={worksheet.tests.length === 0} onClick={applyTypical}>Use typical time</button>
             </div>
