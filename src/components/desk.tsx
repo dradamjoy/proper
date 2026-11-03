@@ -26,7 +26,7 @@ import {
   thresholdSentence,
   breakHours,
 } from "@/lib/coding";
-import { OFFICES, fillRates, money, priceClaim, rateKey, readRates, type Rates, usesMedicareFee, officeCents } from "@/lib/fees";
+import { OFFICES, fillRates, importRates, importSummary, money, priceClaim, rateKey, readRates, type Rates, usesMedicareFee, officeCents } from "@/lib/fees";
 import { missedCodes } from "@/lib/review";
 
 const DRAFT_KEY = "proper.draft.v1";
@@ -578,7 +578,7 @@ export function Desk() {
             </Disclosure>
           </section>
         </div>
-        <Claim result={result} quote={quote} missed={missed} worksheet={worksheet} rates={rates} onRate={(license, code, amount) => setRates((current) => { const key = rateKey(worksheet.payer, license, code); const next = { ...current }; if (amount == null) delete next[key]; else next[key] = amount; return next; })} onFill={(license, percent) => setRates((current) => fillRates(current, worksheet.payer, license, worksheet.locality, percent))} />
+        <Claim result={result} quote={quote} missed={missed} worksheet={worksheet} rates={rates} onRate={(license, code, amount) => setRates((current) => { const key = rateKey(worksheet.payer, license, code); const next = { ...current }; if (amount == null) delete next[key]; else next[key] = amount; return next; })} onFill={(license, percent) => setRates((current) => fillRates(current, worksheet.payer, license, worksheet.locality, percent))} onImport={(text) => { const imported = importRates(rates, text); if (!imported.error) setRates(imported.next); return importSummary(imported); }} />
       </main>
       <MobileSummary result={result} quote={quote} worksheet={worksheet} />
     </div>
@@ -636,6 +636,7 @@ function Claim({
   rates,
   onRate,
   onFill,
+  onImport,
 }: {
   result: ReturnType<typeof codeWorksheet>;
   quote: ReturnType<typeof priceClaim>;
@@ -644,6 +645,7 @@ function Claim({
   rates: Rates;
   onRate: (license: License, code: string, amount: number | null) => void;
   onFill: (license: License, percent: number) => void;
+  onImport: (text: string) => string;
 }) {
   const own = result.lines.filter((line) => line.billedBy !== "supervisor");
   const supervisor = result.lines.filter((line) => line.billedBy === "supervisor");
@@ -746,7 +748,7 @@ function Claim({
 
       {rows.length > 0 && worksheet.payer !== "cpt" ? (
         <Disclosure className="mt-3 border-t border-line pt-3" title="Rates" summary={missing > 0 ? `${missing} missing` : usesMedicareFee(worksheet.payer) ? "WPS 2026 office rates" : "Contract rates on file"} defaultOpen={missing > 0}>
-          <Pay rows={rows} worksheet={worksheet} rates={rates} onRate={onRate} onFill={onFill} />
+          <Pay rows={rows} worksheet={worksheet} rates={rates} onRate={onRate} onFill={onFill} onImport={onImport} />
         </Disclosure>
       ) : null}
 
@@ -755,9 +757,10 @@ function Claim({
   );
 }
 
-function Pay({ rows, worksheet, rates, onRate, onFill }: { rows: PricedRow[]; worksheet: Worksheet; rates: Rates; onRate: (license: License, code: string, amount: number | null) => void; onFill: (license: License, percent: number) => void }) {
+function Pay({ rows, worksheet, rates, onRate, onFill, onImport }: { rows: PricedRow[]; worksheet: Worksheet; rates: Rates; onRate: (license: License, code: string, amount: number | null) => void; onFill: (license: License, percent: number) => void; onImport: (text: string) => string }) {
   const [percent, setPercent] = useState("100");
-  const commercial = worksheet.payer === "bcbsm" || worksheet.payer === "bcn" || worksheet.payer === "aetna" || worksheet.payer === "uhc";
+  const [imported, setImported] = useState<string | null>(null);
+  const commercial = worksheet.payer === "bcbsm" || worksheet.payer === "bcn" || worksheet.payer === "bcn-advantage" || worksheet.payer === "aetna" || worksheet.payer === "uhc";
   const intro = worksheet.payer === "medicare" ? `Original Medicare, participating psychologist, office. ${OFFICES[worksheet.locality]}. Type over a rate to override it.` : worksheet.payer === "uhc-ma" ? `Priced at the Medicare allowed amount for ${OFFICES[worksheet.locality]}. Type your Advantage contract rate to override it.` : `${payerProfile(worksheet.payer).label} does not publish this practice's allowed amount. Enter it from the contract or a remittance. Rates are saved on this browser.`;
   return (
     <div>
@@ -787,6 +790,29 @@ function Pay({ rows, worksheet, rates, onRate, onFill }: { rows: PricedRow[]; wo
           </div>
         </div>
       ) : null}
+      <div className="mt-3 rounded-md bg-inset p-3">
+        <p className="text-sm leading-normal text-muted">Have a fee schedule file? Load a CSV with plan, license, code, and allowed_per_unit columns. It fills every plan in the file, replaces rates you typed for those codes, and stays on this browser.</p>
+        <label className={`${button("quiet")} mt-2 cursor-pointer focus-within:ring-2 focus-within:ring-accent`}>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="sr-only"
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0];
+              input.value = "";
+              if (!file) return;
+              try {
+                setImported(onImport(await file.text()));
+              } catch {
+                setImported("That file could not be read.");
+              }
+            }}
+          />
+          Load rates from CSV
+        </label>
+        <p aria-live="polite" className={imported ? "mt-2 text-sm leading-normal text-ink" : "sr-only"}>{imported ?? ""}</p>
+      </div>
     </div>
   );
 }
