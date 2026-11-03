@@ -1,4 +1,4 @@
-import type { ClaimLine, License, Locality, Payer, Worksheet } from "./coding.ts";
+import { PAYERS, type ClaimLine, type License, type Locality, type Payer, type Worksheet } from "./coding.ts";
 
 /** 2026 WPS participating amount in cents: office, then facility. */
 const WPS: Record<Locality, Record<string, [number, number]>> = {
@@ -115,4 +115,102 @@ export function fillRates(rates: Rates, payer: Payer, license: License, locality
     if (next[key] == null) next[key] = Math.round((WPS[locality][code][0] * factor) / 100) / 100;
   }
   return next;
+}
+
+export type RateImport = {
+  next: Rates;
+  loaded: number;
+  replaced: number;
+  plans: { payer: Payer; label: string; count: number }[];
+  skipped: { row: number; reason: string }[];
+  error: string | null;
+};
+
+const AMOUNT_COLUMNS = ["allowed_per_unit", "allowed", "rate", "amount"];
+
+/** Reads a fee-schedule CSV (plan, license, code, allowed_per_unit) into stored rates. Rows in the file replace rates already on this browser. */
+export function importRates(current: Rates, text: string): RateImport {
+  const empty = (error: string): RateImport => ({ next: current, loaded: 0, replaced: 0, plans: [], skipped: [], error });
+  if (text.length > 1_000_000) return empty("That file is too large for a rate table.");
+  const rows = csvRows(text.replace(/^﻿/, "")).filter((row) => row.some((cell) => cell.trim() !== ""));
+  if (rows.length === 0) return empty("That file is empty.");
+  const header = rows[0].map((cell) => cell.trim().toLowerCase());
+  const col = { plan: header.indexOf("plan"), license: header.indexOf("license"), code: header.indexOf("code"), amount: header.findIndex((cell) => AMOUNT_COLUMNS.includes(cell)) };
+  if (col.plan < 0 || col.license < 0 || col.code < 0 || col.amount < 0) return empty("The file needs plan, license, code, and allowed_per_unit columns.");
+
+  const found: Rates = {};
+  const skipped: RateImport["skipped"] = [];
+  rows.slice(1, 5001).forEach((row, index) => {
+    const at = index + 2;
+    const planText = (row[col.plan] ?? "").trim();
+    const payer = findPayer(planText);
+    const license = (row[col.license] ?? "").trim().toLowerCase();
+    const code = (row[col.code] ?? "").trim();
+    const amount = Number((row[col.amount] ?? "").trim().replace(/[$,]/g, ""));
+    if (!payer) return skipped.push({ row: at, reason: planText ? `no plan called "${planText.slice(0, 30)}"` : "no plan" });
+    if (payer === "cpt") return skipped.push({ row: at, reason: "CPT only has no fee" });
+    if (license !== "lp" && license !== "llp") return skipped.push({ row: at, reason: "license must be LP or LLP" });
+    if (!/^\d{5}$/.test(code)) return skipped.push({ row: at, reason: "code must be five digits" });
+    if (usesMedicareFee(payer) && license === "llp") return skipped.push({ row: at, reason: "Medicare does not enroll an LLP" });
+    if (!Number.isFinite(amount) || amount < 0 || amount > 10000) return skipped.push({ row: at, reason: "allowed amount is not a number from 0 to 10,000" });
+    found[rateKey(payer, license, code)] = Math.round(amount * 100) / 100;
+  });
+
+  const keys = Object.keys(found);
+  if (keys.length === 0) return { ...empty("No rows could be read."), skipped };
+  const replaced = keys.filter((key) => current[key] != null && current[key] !== found[key]).length;
+  const plans = PAYERS.map((plan) => ({ payer: plan.id, label: plan.label, count: keys.filter((key) => key.startsWith(`${plan.id}|`)).length })).filter((plan) => plan.count > 0);
+  return { next: { ...current, ...found }, loaded: keys.length, replaced, plans, skipped, error: null };
+}
+
+export function importSummary(result: RateImport): string {
+  if (result.error) return result.skipped.length ? `${result.error} ${skippedText(result.skipped)}` : result.error;
+  const plans = result.plans.map((plan) => `${plan.label} ${plan.count}`).join(", ");
+  const parts = [`Loaded ${result.loaded} ${result.loaded === 1 ? "rate" : "rates"}: ${plans}.`];
+  if (result.replaced > 0) parts.push(`Replaced ${result.replaced} you had entered.`);
+  if (result.skipped.length > 0) parts.push(skippedText(result.skipped));
+  return parts.join(" ");
+}
+
+function skippedText(skipped: RateImport["skipped"]): string {
+  const shown = skipped.slice(0, 3).map((item) => `row ${item.row}, ${item.reason}`).join("; ");
+  return `Skipped ${skipped.length}: ${shown}${skipped.length > 3 ? "; and more" : ""}.`;
+}
+
+function findPayer(text: string): Payer | null {
+  const wanted = text.trim().toLowerCase();
+  if (!wanted) return null;
+  return PAYERS.find((plan) => plan.id === wanted || plan.label.toLowerCase() === wanted)?.id ?? null;
+}
+
+function csvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch !== '"') field += ch;
+      else if (text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else field += ch;
+  }
+  if (field !== "" || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
 }

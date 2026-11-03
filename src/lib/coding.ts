@@ -1,5 +1,5 @@
 export type License = "lp" | "llp";
-export type Payer = "cpt" | "medicare" | "bcbsm" | "bcn" | "aetna" | "uhc" | "uhc-ma";
+export type Payer = "cpt" | "medicare" | "bcbsm" | "bcn" | "bcn-advantage" | "aetna" | "uhc" | "uhc-ma";
 export type Domain = "psychological" | "neuropsychological";
 export type Span = "per-date" | "episode";
 export type Setting = "in-person" | "telehealth";
@@ -146,6 +146,7 @@ export const PAYERS: { id: Payer; label: string; hint: string; span: Span; timeR
   { id: "medicare", label: "Medicare", hint: "WPS, original Medicare", span: "episode", timeRule: "midpoint", rule: "Combine every date and bill one base code on the last date." },
   { id: "bcbsm", label: "Blue Cross", hint: "BCBSM commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Switch to Each date only if the contract says so." },
   { id: "bcn", label: "Blue Care Network", hint: "BCN commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Confirm the member's network." },
+  { id: "bcn-advantage", label: "BCN Advantage", hint: "Medicare Advantage", span: "episode", timeRule: "midpoint", rule: "BCN Advantage's own multi-day rule has not been reviewed here, so the CPT episode rule applies. Confirm the member's network." },
   { id: "aetna", label: "Aetna", hint: "Commercial", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Most commercial plans dropped routine precertification in 2019." },
   { id: "uhc", label: "UnitedHealthcare", hint: "Commercial, often Optum", span: "episode", timeRule: "midpoint", rule: "No published multi-day rule, so the CPT episode rule applies. Testing often needs Optum authorization." },
   { id: "uhc-ma", label: "UHC Advantage", hint: "Medicare Advantage", span: "episode", timeRule: "midpoint", rule: "Combine every date and bill one base code on the last date. Authorization may still apply." },
@@ -458,6 +459,7 @@ function activityDetail(activities: Activities): string {
 function llpNote(payer: Payer): string {
   if (payer === "medicare" || payer === "uhc-ma") return "Medicare does not enroll a master's LLP as the rendering psychologist. Testing stays on the supervising LP's claim. Do not use the LLP's NPI.";
   if (payer === "bcn") return "BCN may credential a master's LLP to treat directly, often with HO in a facility. That is not incident-to. Testing evaluation stays with the LP. Office incident-to for a TLLP ends March 1, 2027.";
+  if (payer === "bcn-advantage") return "The BCN fee schedule lists a master's (HO) rate for BCN Advantage, so an LLP credentialed with BCN Advantage may bill their own NPI with HO. Confirm that credentialing first. Testing evaluation stays with the LP.";
   if (payer === "bcbsm") return "Blue Cross office incident-to for a TLLP and other limited licenses ends March 1, 2027. A clinician who can enroll bills their own NPI. Testing evaluation stays with the LP.";
   return "An LLP does not bill testing evaluation. Confirm whether this plan credentials the LLP for 90791 or 96127. Do not move the LLP's minutes onto the LP.";
 }
@@ -468,6 +470,7 @@ function payerFlags(payer: Payer): Flag[] {
     medicare: "Original Medicare through WPS. Testing does not need prior authorization. Time uses the CPT midpoint. A master's LLP cannot bill as the Medicare psychologist.",
     bcbsm: "Blue Cross Behavioral Health manages commercial utilization review. Confirm whether this group needs testing authorization. By telehealth, 96130 may be asynchronous. Other behavioral health telehealth is synchronous audiovisual.",
     bcn: "A contracted BCN provider in the member's designated network often needs no referral when 96130–96139 are billed alone. Confirm the network before the battery.",
+    "bcn-advantage": "BCN Advantage is a Medicare Advantage plan priced from the contract rates on file, not the WPS fee. Its referral, authorization, and multi-day rules have not been reviewed here. Confirm them before the battery.",
     aetna: "Most Aetna commercial plans have not required routine precertification for this testing since 2019. Student, Medicaid, and some employer plans still do. Do not bill 96130 with 96132 for the same episode.",
     uhc: "UnitedHealthcare behavioral health is often administered by Optum, not the medical plan on the card. Psychological testing commonly needs authorization before the first date.",
     "uhc-ma": "Optum's Medicare testing guidance combines multi-day time on the last date of service. Medicare Advantage can still require authorization. Original Medicare does not.",
